@@ -115,3 +115,17 @@ npm run auth        # 初回認証
 ## ライセンス
 
 MIT
+
+## セットアップスクリプト
+
+GCP コンソールでの操作（Tasks API の有効化、デスクトップアプリ型 OAuth クライアントの作成と JSON のダウンロード）を済ませたあと、残りをまとめて実行できる。
+
+```bash
+./scripts/setup.sh
+```
+
+`~/Downloads` から `client_secret*.json` を自動的に探し、種別を検証したうえで `~/.config/google-tasks-mcp-server/` に権限 600 で配置し、ビルド・初回認証・MCP サーバー登録まで行う。ファイルが別の場所にある場合はパスを渡す。
+
+```bash
+./scripts/setup.sh /path/to/client_secret.json
+```
