@@ -8,10 +8,10 @@
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-import { AddressInfo } from "node:net";
-import { OAuth2Client } from "google-auth-library";
+import type { AddressInfo } from "node:net";
 import { readClientSecret, saveToken } from "./auth.js";
-import { TASKS_SCOPE, tokenPath } from "./config.js";
+import { tokenPath } from "./config.js";
+import { buildAuthUrl, exchangeCode, TASKS_SCOPE } from "./shared/google-oauth.js";
 
 /** OS ごとの既定ブラウザで URL を開く。失敗しても致命的ではない。 */
 function openBrowser(url: string): void {
@@ -19,7 +19,11 @@ function openBrowser(url: string): void {
     process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
   const args = process.platform === "win32" ? ["", url] : [url];
   try {
-    const child = spawn(command, args, { detached: true, stdio: "ignore", shell: process.platform === "win32" });
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: "ignore",
+      shell: process.platform === "win32",
+    });
     child.unref();
   } catch {
     // 開けなくても URL を表示済みなので手動で開いてもらえばよい
@@ -48,47 +52,50 @@ async function authorize(): Promise<void> {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(`<!doctype html><meta charset="utf-8"><p>${message}</p>`);
       };
+      const abort = (userMessage: string, error: Error) => {
+        respond(userMessage);
+        server.close();
+        reject(error);
+      };
 
-      const error = url.searchParams.get("error");
+      const errorParam = url.searchParams.get("error");
       const code = url.searchParams.get("code");
 
-      if (error) {
-        respond("認証が拒否されました。ターミナルに戻ってください。");
-        server.close();
-        reject(new Error(`認証が拒否されました: ${error}`));
+      if (errorParam) {
+        abort("認証が拒否されました。ターミナルに戻ってください。", new Error(`認証が拒否されました: ${errorParam}`));
         return;
       }
       if (url.searchParams.get("state") !== state) {
-        respond("state が一致しません。認証を中止しました。");
-        server.close();
-        reject(new Error("state が一致しません（CSRF の疑い）。もう一度やり直してください。"));
+        abort("state が一致しません。認証を中止しました。", new Error("state が一致しません（CSRF の疑い）。もう一度やり直してください。"));
         return;
       }
       if (!code) {
-        respond("認可コードが取得できませんでした。");
-        server.close();
-        reject(new Error("認可コードが取得できませんでした。"));
+        abort("認可コードが取得できませんでした。", new Error("認可コードが取得できませんでした。"));
         return;
       }
 
       respond("認証が完了しました。ターミナルに戻ってください。");
       const { port } = server.address() as AddressInfo;
-      const client = new OAuth2Client({
+
+      exchangeCode({
         clientId,
         clientSecret,
+        code,
         redirectUri: `http://127.0.0.1:${port}/oauth2callback`,
-      });
-
-      client
-        .getToken(code)
-        .then(async ({ tokens }) => {
-          if (!tokens.refresh_token) {
+      })
+        .then(async (token) => {
+          if (!token.refresh_token) {
             throw new Error(
               "リフレッシュトークンが返りませんでした。" +
                 "https://myaccount.google.com/permissions でこのアプリのアクセス権を削除してから、もう一度実行してください。",
             );
           }
-          await saveToken(tokens);
+          await saveToken({
+            refresh_token: token.refresh_token,
+            access_token: token.access_token,
+            scope: token.scope,
+            expiry_date: Date.now() + token.expires_in * 1000,
+          });
           console.log(`認証が完了しました。トークンを保存しました: ${tokenPath()}`);
           resolve();
         })
@@ -99,17 +106,11 @@ async function authorize(): Promise<void> {
     server.on("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const { port } = server.address() as AddressInfo;
-      const client = new OAuth2Client({
+      const authUrl = buildAuthUrl({
         clientId,
-        clientSecret,
         redirectUri: `http://127.0.0.1:${port}/oauth2callback`,
-      });
-      const authUrl = client.generateAuthUrl({
-        access_type: "offline",
-        // 既に同意済みでもリフレッシュトークンを確実に受け取るため毎回同意画面を出す
-        prompt: "consent",
-        scope: [TASKS_SCOPE],
         state,
+        scopes: [TASKS_SCOPE],
       });
       console.log("ブラウザで以下の URL を開いて認証してください:\n");
       console.log(authUrl + "\n");

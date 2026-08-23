@@ -1,9 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-/** このサーバーが要求する OAuth スコープ。Google Tasks の読み書きのみ。 */
-export const TASKS_SCOPE = "https://www.googleapis.com/auth/tasks";
-
 /** `~/` 始まりのパスをホームディレクトリに展開する。 */
 function expandHome(path: string): string {
   return path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;

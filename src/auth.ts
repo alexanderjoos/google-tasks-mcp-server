@@ -1,11 +1,23 @@
+/**
+ * stdio 版（Node）の認証。
+ * client_secret とトークンをローカルファイルから読み、Tasks API クライアントを組み立てる。
+ */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { OAuth2Client, type Credentials } from "google-auth-library";
 import { clientSecretPath, tokenPath } from "./config.js";
+import { createAccessTokenProvider, type TokenResponse } from "./shared/google-oauth.js";
+import { TasksApi } from "./shared/tasks-api.js";
 
 export interface ClientSecret {
   clientId: string;
   clientSecret: string;
+}
+
+export interface StoredToken {
+  refresh_token: string;
+  access_token?: string;
+  scope?: string;
+  expiry_date?: number;
 }
 
 /**
@@ -39,27 +51,23 @@ export async function readClientSecret(): Promise<ClientSecret> {
 }
 
 /** 保存済みトークンを読む。未認証なら null。 */
-export async function readSavedToken(): Promise<Credentials | null> {
+export async function readSavedToken(): Promise<StoredToken | null> {
   try {
-    return JSON.parse(await readFile(tokenPath(), "utf8")) as Credentials;
+    return JSON.parse(await readFile(tokenPath(), "utf8")) as StoredToken;
   } catch {
     return null;
   }
 }
 
 /** トークンを本人のみ読める権限（0600）で保存する。 */
-export async function saveToken(credentials: Credentials): Promise<void> {
+export async function saveToken(token: StoredToken): Promise<void> {
   const path = tokenPath();
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await writeFile(path, JSON.stringify(credentials, null, 2), { mode: 0o600 });
+  await writeFile(path, JSON.stringify(token, null, 2), { mode: 0o600 });
 }
 
-/**
- * 保存済みトークンから認証済みクライアントを作る。
- * アクセストークンの期限切れはライブラリが自動更新するので、
- * 更新後の値を取りこぼさないよう tokens イベントで保存し直す。
- */
-export async function loadAuthorizedClient(): Promise<OAuth2Client> {
+/** 保存済みトークンから Tasks API クライアントを組み立てる。 */
+export async function createTasksApi(): Promise<TasksApi> {
   const { clientId, clientSecret } = await readClientSecret();
   const saved = await readSavedToken();
   if (!saved?.refresh_token) {
@@ -69,13 +77,20 @@ export async function loadAuthorizedClient(): Promise<OAuth2Client> {
     );
   }
 
-  const client = new OAuth2Client({ clientId, clientSecret });
-  client.setCredentials(saved);
-  client.on("tokens", (tokens) => {
-    // リフレッシュ時は refresh_token が含まれないことがあるため、既存の値とマージする。
-    void saveToken({ ...saved, ...tokens }).catch((error: unknown) => {
-      console.error("[google-tasks-mcp] トークンの保存に失敗しました:", error);
-    });
+  const getAccessToken = createAccessTokenProvider({
+    clientId,
+    clientSecret,
+    refreshToken: saved.refresh_token,
+    // リフレッシュ時は refresh_token が含まれないことがあるため、既存の値とマージする
+    onRefresh: (token: TokenResponse) =>
+      saveToken({
+        ...saved,
+        access_token: token.access_token,
+        expiry_date: Date.now() + token.expires_in * 1000,
+      }).catch((error: unknown) => {
+        console.error("[google-tasks-mcp] トークンの保存に失敗しました:", error);
+      }),
   });
-  return client;
+
+  return new TasksApi(getAccessToken);
 }

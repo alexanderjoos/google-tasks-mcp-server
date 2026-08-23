@@ -1,8 +1,11 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { getTasksClient } from "./tasks.js";
+import type { TasksApi } from "./tasks-api.js";
 import { compactTask, compactTaskList, describeError, ok, fail } from "./format.js";
+
+/** 実行時に Tasks API クライアントを供給する。ランタイムごとに実装が異なる。 */
+export type TasksApiProvider = () => Promise<TasksApi>;
 
 /** 全ツール共通のエラー処理。API 例外を isError 付きの結果に変換する。 */
 async function run(handler: () => Promise<CallToolResult>): Promise<CallToolResult> {
@@ -53,7 +56,7 @@ const dueDescription =
   "期限。RFC 3339 形式（例: 2026-08-30T00:00:00.000Z）。" +
   "Google Tasks は日付部分のみ保持し、時刻は無視される。";
 
-export function registerTools(server: McpServer): void {
+export function registerTools(server: McpServer, getApi: TasksApiProvider): void {
   // ---------- タスクリスト ----------
 
   server.registerTool(
@@ -69,8 +72,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ maxResults, pageToken }) =>
       run(async () => {
-        const client = await getTasksClient();
-        const { data } = await client.tasklists.list({ maxResults, pageToken });
+        const data = await (await getApi()).listTaskLists({ maxResults, pageToken });
         return ok({
           items: (data.items ?? []).map(compactTaskList),
           nextPageToken: data.nextPageToken ?? null,
@@ -88,9 +90,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ tasklist }) =>
       run(async () => {
-        const client = await getTasksClient();
-        const { data } = await client.tasklists.get({ tasklist });
-        return ok(compactTaskList(data));
+        return ok(compactTaskList(await (await getApi()).getTaskList(tasklist)));
       }),
   );
 
@@ -103,9 +103,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ title }) =>
       run(async () => {
-        const client = await getTasksClient();
-        const { data } = await client.tasklists.insert({ requestBody: { title } });
-        return ok(compactTaskList(data));
+        return ok(compactTaskList(await (await getApi()).createTaskList(title)));
       }),
   );
 
@@ -118,9 +116,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ tasklist, title }) =>
       run(async () => {
-        const client = await getTasksClient();
-        const { data } = await client.tasklists.patch({ tasklist, requestBody: { title } });
-        return ok(compactTaskList(data));
+        return ok(compactTaskList(await (await getApi()).patchTaskList(tasklist, { title })));
       }),
   );
 
@@ -134,8 +130,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ tasklist }) =>
       run(async () => {
-        const client = await getTasksClient();
-        await client.tasklists.delete({ tasklist });
+        await (await getApi()).deleteTaskList(tasklist);
         return ok({ deleted: tasklist });
       }),
   );
@@ -147,11 +142,11 @@ export function registerTools(server: McpServer): void {
     {
       title: "タスク一覧",
       description:
-        "タスクリスト内のタスクを一覧する。既定では未完了のタスクのみ返す。" +
-        "期限や更新日時での絞り込みができる。",
+        "タスクリスト内のタスクを一覧する。期限や更新日時での絞り込みができる。" +
+        "API 経由で完了にしたタスクは既定でも一覧に含まれる（clear-completed-tasks で非表示にできる）。",
       inputSchema: {
         tasklist: tasklistArg,
-        showCompleted: z.boolean().optional().describe("完了済みタスクも含める（既定 false。true にする場合は showHidden も true が必要なことが多い）"),
+        showCompleted: z.boolean().optional().describe("完了済みタスクを含めるか（Google API の既定は true）。false にすると完了タスクを除外できる。"),
         showHidden: z.boolean().optional().describe("非表示タスク（他クライアントで完了扱いになったもの）も含める"),
         showDeleted: z.boolean().optional().describe("削除済みタスクも含める"),
         dueMin: z.string().optional().describe("期限の下限。指定日を含む（RFC 3339。日付部分のみ使われる）"),
@@ -166,11 +161,11 @@ export function registerTools(server: McpServer): void {
     },
     async (args) =>
       run(async () => {
-        const client = await getTasksClient();
-        // showCompleted のみ指定された場合、showHidden なしでは完了タスクが返らない
+        // showCompleted のみ指定された場合、showHidden なしでは他クライアントで完了したタスクが返らない
         const showHidden = args.showHidden ?? (args.showCompleted === true ? true : undefined);
         const { dueMin, dueMax } = normalizeDueRange(args.dueMin, args.dueMax);
-        const { data } = await client.tasks.list({ ...args, showHidden, dueMin, dueMax });
+        const { tasklist, ...rest } = args;
+        const data = await (await getApi()).listTasks(tasklist, { ...rest, showHidden, dueMin, dueMax });
         return ok({
           items: (data.items ?? []).map(compactTask),
           nextPageToken: data.nextPageToken ?? null,
@@ -188,9 +183,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ tasklist, task }) =>
       run(async () => {
-        const client = await getTasksClient();
-        const { data } = await client.tasks.get({ tasklist, task });
-        return ok(compactTask(data));
+        return ok(compactTask(await (await getApi()).getTask(tasklist, task)));
       }),
   );
 
@@ -210,14 +203,8 @@ export function registerTools(server: McpServer): void {
     },
     async ({ tasklist, title, notes, due, parent, previous }) =>
       run(async () => {
-        const client = await getTasksClient();
-        const { data } = await client.tasks.insert({
-          tasklist,
-          parent,
-          previous,
-          requestBody: { title, notes, due },
-        });
-        return ok(compactTask(data));
+        const task = await (await getApi()).insertTask(tasklist, { title, notes, due }, { parent, previous });
+        return ok(compactTask(task));
       }),
   );
 
@@ -243,10 +230,8 @@ export function registerTools(server: McpServer): void {
         if (Object.keys(body).length === 0) {
           return fail("更新する項目が 1 つも指定されていません。title / notes / due / status のいずれかを指定してください。");
         }
-        const client = await getTasksClient();
         // update ではなく patch を使う。update は未指定フィールドを消してしまう。
-        const { data } = await client.tasks.patch({ tasklist, task, requestBody: body });
-        return ok(compactTask(data));
+        return ok(compactTask(await (await getApi()).patchTask(tasklist, task, body)));
       }),
   );
 
@@ -263,16 +248,11 @@ export function registerTools(server: McpServer): void {
     },
     async ({ tasklist, task, completed }) =>
       run(async () => {
-        const client = await getTasksClient();
-        const { data } = await client.tasks.patch({
-          tasklist,
-          task,
-          // 未完了に戻すときは completed 日時も明示的に消す必要がある
-          requestBody: completed
-            ? { status: "completed" }
-            : { status: "needsAction", completed: null },
-        });
-        return ok(compactTask(data));
+        // 未完了に戻すときは completed 日時も明示的に消す必要がある
+        const body = completed
+          ? { status: "completed" as const }
+          : { status: "needsAction" as const, completed: null };
+        return ok(compactTask(await (await getApi()).patchTask(tasklist, task, body)));
       }),
   );
 
@@ -293,15 +273,8 @@ export function registerTools(server: McpServer): void {
     },
     async ({ tasklist, task, parent, previous, destinationTasklist }) =>
       run(async () => {
-        const client = await getTasksClient();
-        const { data } = await client.tasks.move({
-          tasklist,
-          task,
-          parent,
-          previous,
-          destinationTasklist,
-        });
-        return ok(compactTask(data));
+        const moved = await (await getApi()).moveTask(tasklist, task, { parent, previous, destinationTasklist });
+        return ok(compactTask(moved));
       }),
   );
 
@@ -315,8 +288,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ tasklist, task }) =>
       run(async () => {
-        const client = await getTasksClient();
-        await client.tasks.delete({ tasklist, task });
+        await (await getApi()).deleteTask(tasklist, task);
         return ok({ deleted: task, tasklist });
       }),
   );
@@ -333,8 +305,7 @@ export function registerTools(server: McpServer): void {
     },
     async ({ tasklist }) =>
       run(async () => {
-        const client = await getTasksClient();
-        await client.tasks.clear({ tasklist });
+        await (await getApi()).clearCompleted(tasklist);
         return ok({ cleared: tasklist });
       }),
   );
