@@ -13,6 +13,35 @@ async function run(handler: () => Promise<CallToolResult>): Promise<CallToolResu
   }
 }
 
+/**
+ * 期限フィルタを日付境界に正規化する。
+ *
+ * Google Tasks API の dueMax は「日付単位で排他的」で、
+ * dueMax に当日 23:59:59 を渡しても当日期限のタスクは 1 件も返らない。
+ * 当日分を含めるには翌日 0 時を渡す必要がある。
+ * 直感と反するため、ここで dueMax を「指定日を含む」意味に揃える。
+ */
+function normalizeDueRange(dueMin?: string, dueMax?: string): { dueMin?: string; dueMax?: string } {
+  const startOfDay = (value: string, addDays: number): string => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new Error(`期限の日時として解釈できません: ${value}（RFC 3339 形式で指定してください）`);
+    }
+    return new Date(
+      Date.UTC(
+        parsed.getUTCFullYear(),
+        parsed.getUTCMonth(),
+        parsed.getUTCDate() + addDays,
+      ),
+    ).toISOString();
+  };
+  return {
+    dueMin: dueMin === undefined ? undefined : startOfDay(dueMin, 0),
+    // 指定日を含めるため翌日 0 時に繰り上げる
+    dueMax: dueMax === undefined ? undefined : startOfDay(dueMax, 1),
+  };
+}
+
 const tasklistArg = z
   .string()
   .default("@default")
@@ -125,8 +154,8 @@ export function registerTools(server: McpServer): void {
         showCompleted: z.boolean().optional().describe("完了済みタスクも含める（既定 false。true にする場合は showHidden も true が必要なことが多い）"),
         showHidden: z.boolean().optional().describe("非表示タスク（他クライアントで完了扱いになったもの）も含める"),
         showDeleted: z.boolean().optional().describe("削除済みタスクも含める"),
-        dueMin: z.string().optional().describe("期限の下限（RFC 3339）"),
-        dueMax: z.string().optional().describe("期限の上限（RFC 3339）"),
+        dueMin: z.string().optional().describe("期限の下限。指定日を含む（RFC 3339。日付部分のみ使われる）"),
+        dueMax: z.string().optional().describe("期限の上限。指定日を含む（RFC 3339。日付部分のみ使われる）。今日までのタスクなら今日の日付を渡す。"),
         completedMin: z.string().optional().describe("完了日時の下限（RFC 3339）"),
         completedMax: z.string().optional().describe("完了日時の上限（RFC 3339）"),
         updatedMin: z.string().optional().describe("更新日時の下限（RFC 3339）"),
@@ -140,7 +169,8 @@ export function registerTools(server: McpServer): void {
         const client = await getTasksClient();
         // showCompleted のみ指定された場合、showHidden なしでは完了タスクが返らない
         const showHidden = args.showHidden ?? (args.showCompleted === true ? true : undefined);
-        const { data } = await client.tasks.list({ ...args, showHidden });
+        const { dueMin, dueMax } = normalizeDueRange(args.dueMin, args.dueMax);
+        const { data } = await client.tasks.list({ ...args, showHidden, dueMin, dueMax });
         return ok({
           items: (data.items ?? []).map(compactTask),
           nextPageToken: data.nextPageToken ?? null,

@@ -103,6 +103,7 @@ claude mcp add google-tasks \
 - **期限に時刻は保存されない。** `due` は RFC 3339 で渡すが、Google Tasks は日付部分のみ保持する
 - **完了タスクの取得には `showHidden` が要る。** `showCompleted: true` だけでは他クライアントで完了したタスクが返らないため、本サーバーは `showCompleted: true` のとき `showHidden` を自動で補う
 - **`clear-completed-tasks` は削除ではない。** 非表示になるだけで、`showHidden: true` で取得できる
+- **期限フィルタは「指定日を含む」に補正している。** Google Tasks API の `dueMax` は日付単位で排他的で、当日 23:59:59 を渡しても当日期限のタスクが 1 件も返らない（翌日 0 時を渡す必要がある）。直感に反するため、本サーバーは `dueMin` / `dueMax` を日付境界に正規化し、どちらも指定日を含む挙動に揃えている
 
 ## 開発
 
