@@ -8,3 +8,7 @@ credentials.json
 token.json
 .env
 .env.*
+
+# wrangler のローカル変数
+.dev.vars
+.wrangler/

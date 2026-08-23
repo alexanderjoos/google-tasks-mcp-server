@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "google-tasks-mcp-server",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-08-19",
+  // MCP SDK が Node 互換 API を参照するため有効化する
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "PLACEHOLDER_REPLACE_WITH_REAL_KV_ID"
+    }
+  ],
+  "vars": {
+    // GOOGLE_CLIENT_SECRET は vars ではなく `wrangler secret put` で設定する
+    "GOOGLE_CLIENT_ID": "<ウェブアプリ型 OAuth クライアントの ID>",
+    "ALLOWED_EMAIL": "<利用を許可する Google アカウント>"
+  }
+}
