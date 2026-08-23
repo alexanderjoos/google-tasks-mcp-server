@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.log
+
+# OAuth 認証情報・トークンは絶対にコミットしない
+client_secret*.json
+credentials.json
+token.json
+.env
+.env.*
