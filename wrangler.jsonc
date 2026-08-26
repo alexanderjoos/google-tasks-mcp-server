@@ -13,8 +13,9 @@
     }
   ],
   "vars": {
-    // GOOGLE_CLIENT_SECRET は vars ではなく `wrangler secret put` で設定する
-    "GOOGLE_CLIENT_ID": "723034496442-cmkbnv402c183pd2dah3lkgap1n5nkno.apps.googleusercontent.com",
-    "ALLOWED_EMAIL": "REDACTED_EMAIL"
+    // GOOGLE_CLIENT_SECRET と ALLOWED_EMAIL は vars ではなく
+    // `wrangler secret put` で設定する。前者は秘密情報、
+    // 後者は個人情報を公開リポジトリに残さないため。
+    "GOOGLE_CLIENT_ID": "723034496442-cmkbnv402c183pd2dah3lkgap1n5nkno.apps.googleusercontent.com"
   }
 }
