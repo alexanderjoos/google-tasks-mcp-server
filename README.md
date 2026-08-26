@@ -1,8 +1,17 @@
 # google-tasks-mcp-server
 
-Google Tasks を操作する MCP サーバー（stdio）。タスクリストとタスクの CRUD、完了トグル、並べ替え・移動、完了タスクの一括非表示を提供する。
+Google Tasks を操作する MCP サーバー。タスクリストとタスクの CRUD、完了トグル、並べ替え・移動、完了タスクの一括非表示を提供する。
 
 Google 公式の Workspace MCP サーバー群（Gmail / Calendar / Drive など）には Tasks が含まれていないため、その穴を埋める目的で作った。
+
+2 つの動作形態がある。ツール定義と Google API 呼び出しは `src/shared/` で共有している。
+
+| 形態 | 実体 | 使える環境 |
+| --- | --- | --- |
+| **stdio 版** | ローカルの Node プロセス | Claude Code、Claude Desktop |
+| **リモート版** | Cloudflare Workers | 上記に加えて claude.ai、**iOS / Android** |
+
+モバイルから使うには、Anthropic のクラウドから到達できるリモートサーバーである必要があるためリモート版を用意した。Claude は認証なしのリモート MCP サーバーを受け付けないので、リモート版は MCP サーバー自身が OAuth 2.1 の認可サーバーとして振る舞う。
 
 ## 設計方針
 
@@ -10,6 +19,9 @@ Google 公式の Workspace MCP サーバー群（Gmail / Calendar / Drive など
 - **初回認証は独立した CLI で行う。** MCP サーバーは stdout を JSON-RPC で占有しているため、ブラウザ起動やログが混ざるとプロトコルが壊れる。認証を `npm run auth` に切り出すことで衝突を避け、失敗時の切り分けも容易にした
 - **スコープは Tasks のみ。** `https://www.googleapis.com/auth/tasks` だけを要求する
 - **更新は `patch`。** `update` は未指定フィールドを消してしまうため、部分更新には常に `patch` を使う
+- **Google API は `fetch` のみで叩く。** `@googleapis/tasks` と `google-auth-library` はいずれも Node 依存で Workers では動かない。実行時依存は `@modelcontextprotocol/sdk` と `zod` だけ
+- **リモート版は Google のトークンを Claude に渡さない。** 本人確認は Google に委譲するが、得たリフレッシュトークンは Worker 側の暗号化された props に保管し、Claude には自前発行のトークンのみを渡す
+- **リモート版は利用者を 1 アカウントに限定する。** 公開エンドポイントになるため、`ALLOWED_EMAIL` と一致しない相手は認可しない
 
 ## セットアップ
 
@@ -104,6 +116,65 @@ claude mcp add google-tasks \
 - **完了タスクの取得には `showHidden` が要る。** `showCompleted: true` だけでは他クライアントで完了したタスクが返らないため、本サーバーは `showCompleted: true` のとき `showHidden` を自動で補う
 - **`clear-completed-tasks` は削除ではない。** 非表示になるだけで、`showHidden: true` で取得できる
 - **期限フィルタは「指定日を含む」に補正している。** Google Tasks API の `dueMax` は日付単位で排他的で、当日 23:59:59 を渡しても当日期限のタスクが 1 件も返らない（翌日 0 時を渡す必要がある）。直感に反するため、本サーバーは `dueMin` / `dueMax` を日付境界に正規化し、どちらも指定日を含む挙動に揃えている
+
+## リモート版（Cloudflare Workers）
+
+モバイルから使う場合はこちら。
+
+### 構成
+
+```
+Claude クラウド / モバイル
+  └→ Worker
+      ├ /.well-known/*, /authorize, /token, /register   ← OAuth 2.1 認可サーバー
+      └ /mcp                                            ← MCP 本体（認証必須）
+           └→ Google Tasks REST API
+```
+
+### 必要なもの
+
+- **ウェブアプリ型**の OAuth クライアント（stdio 版のデスクトップ型とは別に作る）
+  - 承認済みリダイレクト URI に `https://<Worker の URL>/callback` を登録する
+  - ローカル検証もするなら `http://localhost:8787/callback` も登録しておく
+- Cloudflare アカウント
+
+### デプロイ
+
+```bash
+# KV 名前空間を作成し、出力された ID を wrangler.jsonc に記入する
+npx wrangler kv namespace create OAUTH_KV
+
+# wrangler.jsonc の GOOGLE_CLIENT_ID と ALLOWED_EMAIL を記入してからデプロイ
+npx wrangler deploy
+
+# シークレットは設定ファイルに書かず Cloudflare 側に登録する
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+```
+
+初回デプロイ時に workers.dev のサブドメイン登録を求められることがある。これはアカウント全体で 1 つの設定なので、プロジェクト名ではなく自分を表す名前にする。
+
+### ローカルでの動作確認
+
+```bash
+# .dev.vars に GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / ALLOWED_EMAIL を記入する
+npx wrangler dev --port 8787 --local
+```
+
+`compatibility_date` はローカルランタイムが対応する日付に合わせること。未来の日付を指定すると起動に失敗する。
+
+### Claude への登録
+
+**モバイルアプリからは追加できない。** claude.ai か Claude Desktop で登録すると、同じアカウントの iOS / Android に同期される。
+
+1. claude.ai の 設定 → コネクタ → カスタムコネクタを追加
+2. URL に `https://<Worker の URL>/mcp` を入力（末尾の `/mcp` を忘れない）
+3. 認証は「常に必須」、OAuth クライアントは「クライアント ID なし — 自動的に登録する」（どちらも自動検出される）
+4. 「接続」から Google 認証を通す
+
+### 踏んだ落とし穴
+
+- **Google のリダイレクト URI の反映には時間がかかる。** 保存直後は `redirect_uri_mismatch` になることがある。数分待つ
+- **Cloudflare は既定の User-Agent が Python のリクエストを 403 で弾く。** スクリプトから叩く場合は User-Agent を明示する
 
 ## 開発
 
