@@ -1,4 +1,0 @@
-# Copy to .dev.vars for `npm run dev`. .dev.vars is gitignored.
-GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-client-secret
-ALLOWED_EMAIL=you@gmail.com

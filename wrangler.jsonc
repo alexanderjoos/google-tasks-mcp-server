@@ -15,7 +15,7 @@
     {
       "binding": "OAUTH_KV",
       // Create with: npx wrangler kv namespace create OAUTH_KV
-      "id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+      "id": "8cd73e4c3f87445cb8da1f0ac5b99e03"
     }
   ],
   "vars": {
