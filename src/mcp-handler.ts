@@ -7,8 +7,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { Env, UserProps } from "./env.js";
-import { registerTools } from "./tools.js";
+import { registerTaskTools } from "./tools.js";
+import { registerSheetsTools } from "./sheets-tools.js";
+import { registerDocsTools } from "./docs-tools.js";
 import { TasksApi } from "./tasks-api.js";
+import { SheetsApi } from "./sheets-api.js";
+import { DocsApi } from "./docs-api.js";
 import { createAccessTokenProvider } from "./google-oauth.js";
 
 export default {
@@ -24,18 +28,19 @@ export default {
       return new Response(null, { status: 405, headers: { Allow: "POST" } });
     }
 
-    const server = new McpServer({ name: "gtasks-mcp", version: "1.0.0" });
+    const server = new McpServer({ name: "gtasks-mcp", version: "1.1.0" });
 
     // Workers are short-lived, so a Google access token is minted per request. The provider
     // caches it, so several tool calls in one request still cost one refresh round trip.
-    const api = new TasksApi(
-      createAccessTokenProvider({
-        clientId: env.GOOGLE_CLIENT_ID,
-        clientSecret: env.GOOGLE_CLIENT_SECRET,
-        refreshToken: props.googleRefreshToken,
-      }),
-    );
-    registerTools(server, api);
+    // One token provider shared by all three APIs: the same Google grant covers every scope.
+    const getAccessToken = createAccessTokenProvider({
+      clientId: env.GOOGLE_CLIENT_ID,
+      clientSecret: env.GOOGLE_CLIENT_SECRET,
+      refreshToken: props.googleRefreshToken,
+    });
+    registerTaskTools(server, new TasksApi(getAccessToken));
+    registerSheetsTools(server, new SheetsApi(getAccessToken));
+    registerDocsTools(server, new DocsApi(getAccessToken));
 
     // Stateless: no session IDs, each request is complete on its own, JSON responses (no SSE).
     const transport = new WebStandardStreamableHTTPServerTransport({

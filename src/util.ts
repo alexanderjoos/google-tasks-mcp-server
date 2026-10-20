@@ -93,3 +93,26 @@ export function nextDay(value: string): string {
   start.setUTCDate(start.getUTCDate() + 1);
   return start.toISOString();
 }
+
+/**
+ * Accept a Google Sheets/Docs URL or a bare file ID and return the ID.
+ * Handles /spreadsheets/d/<id>/..., /document/d/<id>/..., and Drive's ?id=<id> links.
+ */
+export function parseGoogleFileId(input: string): string {
+  const value = input.trim();
+  const fromPath = /\/d\/([A-Za-z0-9_-]{10,})/.exec(value);
+  if (fromPath) return fromPath[1]!;
+  try {
+    const id = new URL(value).searchParams.get("id");
+    if (id && /^[A-Za-z0-9_-]{10,}$/.test(id)) return id;
+  } catch {
+    // not a URL
+  }
+  if (/^[A-Za-z0-9_-]{10,}$/.test(value)) return value;
+  throw new Error(`"${input}" is not a Google file URL or ID.`);
+}
+
+/** Quote a tab name for A1 notation: My Tab -> 'My Tab', O'Brien -> 'O''Brien'. */
+export function quoteTabName(tab: string): string {
+  return `'${tab.replaceAll("'", "''")}'`;
+}

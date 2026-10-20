@@ -1,7 +1,9 @@
 /**
- * Thin client for the Google Tasks REST API. fetch only (googleapis packages don't run on Workers).
+ * Thin client for the Google Tasks REST API.
  * Reference: https://developers.google.com/workspace/tasks/reference/rest
  */
+
+import { createGoogleClient, type AccessTokenProvider } from "./google-api.js";
 
 const BASE = "https://tasks.googleapis.com/tasks/v1";
 
@@ -31,56 +33,11 @@ export interface ListResponse<T> {
   nextPageToken?: string;
 }
 
-export type AccessTokenProvider = () => Promise<string>;
-
-/** Thrown when Google returns a non-2xx response. Keeps the HTTP status. */
-export class TasksApiError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = "TasksApiError";
-  }
-}
-
 export class TasksApi {
-  constructor(private readonly getAccessToken: AccessTokenProvider) {}
+  private readonly request: ReturnType<typeof createGoogleClient>;
 
-  private async request<T>(
-    method: string,
-    path: string,
-    options: { query?: Record<string, unknown>; body?: unknown } = {},
-  ): Promise<T> {
-    const url = new URL(BASE + path);
-    for (const [key, value] of Object.entries(options.query ?? {})) {
-      if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
-    }
-
-    const response = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${await this.getAccessToken()}`,
-        ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
-      },
-      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      let detail = text;
-      try {
-        detail = (JSON.parse(text) as { error?: { message?: string } }).error?.message ?? text;
-      } catch {
-        // not JSON, use the raw body
-      }
-      throw new TasksApiError(response.status, detail);
-    }
-
-    // DELETE returns 204 with an empty body.
-    if (response.status === 204) return undefined as T;
-    const text = await response.text();
-    return (text ? JSON.parse(text) : undefined) as T;
+  constructor(getAccessToken: AccessTokenProvider) {
+    this.request = createGoogleClient("Google Tasks", BASE, getAccessToken);
   }
 
   listTaskLists(query: { maxResults?: number; pageToken?: string } = {}): Promise<ListResponse<TaskList>> {

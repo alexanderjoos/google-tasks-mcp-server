@@ -9,11 +9,11 @@ npm install
 ## 1. Google Cloud
 
 1. Go to <https://console.cloud.google.com> and create a project (or reuse one).
-2. **APIs & Services → Library →** search "Google Tasks API" → **Enable**.
+2. **APIs & Services → Library →** enable **Google Tasks API**, **Google Sheets API**, and **Google Docs API**.
 3. **Google Auth Platform** (formerly "OAuth consent screen"):
    - **Branding:** app name (e.g. "Tasks MCP"), your email as support and developer contact.
    - **Audience:** User type **External**. Add your Gmail as a test user.
-   - **Data Access:** add scopes `openid`, `.../auth/userinfo.email`, and `https://www.googleapis.com/auth/tasks`.
+   - **Data Access:** add scopes `openid`, `.../auth/userinfo.email`, `https://www.googleapis.com/auth/tasks`, `https://www.googleapis.com/auth/spreadsheets`, and `https://www.googleapis.com/auth/documents`.
    - **Audience → Publish app** (move it to **In production**). This matters: in Testing mode Google expires refresh tokens after 7 days, and the connector would break weekly. You don't need Google's verification for personal use; you'll click through an "unverified app" warning once when you sign in.
 4. **Clients → Create client → Web application.** Add these **Authorized redirect URIs**:
    - `http://localhost:8788/callback` (local testing)
@@ -77,5 +77,7 @@ Connecting opens the consent page → **Approve** → Google sign-in. It works i
 | "Redirect not allowed" | The client's callback host isn't in `ALLOWED_REDIRECT_HOSTS` (`wrangler.jsonc`). The page shows the rejected URL. Add its host only if you recognize it, then redeploy. |
 | "Not allowed" after Google sign-in | You signed in with an account other than `ALLOWED_EMAIL`. |
 | "No refresh token" | Remove the app at <https://myaccount.google.com/permissions> and connect again. |
+| Sheets/Docs tools say access "wasn't granted" | The connector was authorized before those scopes existed, or a checkbox was left unticked on Google's consent screen. Disconnect and reconnect, and allow everything. |
+| "API isn't enabled" | Enable the Sheets or Docs API in the Google Cloud project (step 1.2). |
 | Tools say the Google sign-in expired | Reconnect the connector. If it happens every ~7 days, the Google app is still in Testing mode (step 1.3). |
 | `redirect_uri_mismatch` from Google | The `/callback` URL for this environment isn't in the Google client's redirect URIs. |

@@ -6,8 +6,16 @@ const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo";
 
-/** Read/write access to Google Tasks, and nothing else. */
-export const TASKS_SCOPE = "https://www.googleapis.com/auth/tasks";
+/**
+ * Read/write access to Google Tasks, Sheets and Docs. No Drive scope: finding files by name is
+ * left to Claude's built-in Drive search (or a pasted link), since Drive listing scopes are
+ * Google "restricted" scopes.
+ */
+export const GOOGLE_API_SCOPES = [
+  "https://www.googleapis.com/auth/tasks",
+  "https://www.googleapis.com/auth/spreadsheets",
+  "https://www.googleapis.com/auth/documents",
+];
 /** Needed to read the account's email for the single-user allowlist. */
 export const IDENTITY_SCOPES = ["openid", "email"];
 
@@ -29,7 +37,7 @@ export function buildAuthUrl(params: {
   url.searchParams.set("client_id", params.clientId);
   url.searchParams.set("redirect_uri", params.redirectUri);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", [...IDENTITY_SCOPES, TASKS_SCOPE].join(" "));
+  url.searchParams.set("scope", [...IDENTITY_SCOPES, ...GOOGLE_API_SCOPES].join(" "));
   url.searchParams.set("state", params.state);
   // Always show consent so Google always returns a refresh token.
   url.searchParams.set("access_type", "offline");

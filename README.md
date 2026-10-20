@@ -1,6 +1,6 @@
 # gtasks-mcp
 
-A remote MCP server that lets Claude manage Google Tasks (the tasks in Google Calendar's Tasks panel). It runs on the Cloudflare Workers free plan, uses OAuth 2.1 so it works from claude.ai on web and mobile, and only one Google account can ever authorize it.
+A remote MCP server that lets Claude manage Google Tasks (the tasks in Google Calendar's Tasks panel) and edit Google Sheets and Docs in place. It runs on the Cloudflare Workers free plan, uses OAuth 2.1 so it works from claude.ai on web and mobile, and only one Google account can ever authorize it.
 
 Setup: see [SETUP.md](SETUP.md). Original requirements: [PLAN.md](PLAN.md).
 
@@ -16,7 +16,28 @@ Setup: see [SETUP.md](SETUP.md). Original requirements: [PLAN.md](PLAN.md).
 | `complete_task` | Mark done, or `completed: false` to reopen |
 | `delete_task` | Permanent delete |
 
-Every tool defaults to the main list (`@default`). Due dates are date-only, a Google Tasks API limitation. Use calendar events for anything with a time.
+Sheets and Docs tools take a file URL or ID:
+
+| Tool | What it does |
+|---|---|
+| `sheets_get_info` | Title and tabs with sizes |
+| `sheets_read` | Read a range, as displayed, raw, or as formulas (capped at 5,000 cells) |
+| `sheets_write` | Overwrite a range; input is parsed like typing in the UI unless `raw` |
+| `sheets_append_rows` | Add rows under the existing data in a tab |
+| `sheets_clear` | Clear values in a range |
+| `sheets_add_tab` | Add a tab |
+| `sheets_create` | New spreadsheet, optional tabs and starting rows |
+| `docs_read` | Doc as light Markdown (first tab only) |
+| `docs_append` | Add paragraphs at the end |
+| `docs_insert_after` | Add paragraphs after the one paragraph matching some text, e.g. a heading |
+| `docs_replace_text` | Replace every occurrence of some text, keeping formatting |
+| `docs_create` | New doc with optional content |
+
+Docs inserts understand `#`/`##`/`###` headings and `-` bullets, one paragraph per line. Index-based edits are computed from a fresh read and sent with the doc's revision ID, so a concurrent edit makes the call fail instead of landing in the wrong place.
+
+There's deliberately no Drive scope: Drive's file-listing scopes are Google "restricted" scopes, and Claude's built-in Google Drive connector can already search and return the file link. Paste a link or let Claude find it there, then edit through these tools.
+
+Every Tasks tool defaults to the main list (`@default`). Due dates are date-only, a Google Tasks API limitation. Use calendar events for anything with a time.
 
 ## How it works
 

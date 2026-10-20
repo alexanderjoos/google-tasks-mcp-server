@@ -1,20 +1,11 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { TasksApi, Task } from "./tasks-api.js";
-import { compactTask, compactTaskList, describeError, ok, fail } from "./format.js";
+import { compactTask, compactTaskList, ok, fail, run } from "./format.js";
 import { nextDay, normalizeDue } from "./util.js";
 
 /** Upper bound on tasks returned by list_tasks across pages, to keep responses small. */
 const MAX_LIST_RESULTS = 300;
-
-async function run(handler: () => Promise<CallToolResult>): Promise<CallToolResult> {
-  try {
-    return await handler();
-  } catch (error) {
-    return fail(describeError(error));
-  }
-}
 
 const listIdArg = z
   .string()
@@ -30,7 +21,7 @@ const dueArg = z
       "Google Tasks stores the date only; any time of day is ignored.",
   );
 
-export function registerTools(server: McpServer, api: TasksApi): void {
+export function registerTaskTools(server: McpServer, api: TasksApi): void {
   server.registerTool(
     "list_task_lists",
     {

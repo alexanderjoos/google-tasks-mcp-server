@@ -123,8 +123,8 @@ async function handleAuthorize(request: Request, env: Env): Promise<Response> {
 
   const redirectHost = new URL(authRequest.redirectUri).host;
   return page(
-    `<h1>Connect Google Tasks?</h1>` +
-      `<p><strong>${escapeHtml(clientName)}</strong> wants to read and edit your Google Tasks.</p>` +
+    `<h1>Connect Google Tasks, Sheets and Docs?</h1>` +
+      `<p><strong>${escapeHtml(clientName)}</strong> wants to read and edit your Google Tasks, Sheets and Docs.</p>` +
       `<p>After you approve, you'll sign in with Google, and access will be returned to <code>${escapeHtml(redirectHost)}</code>.</p>` +
       `<p>If you didn't just try to connect this, click Deny.</p>` +
       `<form method="post" action="/authorize/decide" class="row">` +
