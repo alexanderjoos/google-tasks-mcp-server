@@ -18,6 +18,12 @@ export default {
       return Response.json({ error: "No authorization found. Reconnect the connector." }, { status: 401 });
     }
 
+    // Stateless, so there's no standalone SSE stream to offer. Per the spec, answer GET with 405;
+    // otherwise the stream closes immediately and clients reconnect in a loop.
+    if (request.method !== "POST") {
+      return new Response(null, { status: 405, headers: { Allow: "POST" } });
+    }
+
     const server = new McpServer({ name: "gtasks-mcp", version: "1.0.0" });
 
     // Workers are short-lived, so a Google access token is minted per request. The provider
