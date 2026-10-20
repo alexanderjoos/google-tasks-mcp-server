@@ -1,18 +1,13 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
     "lib": ["ES2023"],
-    "types": ["node"],
-    "outDir": "dist",
-    "rootDir": "src",
+    "types": ["@cloudflare/workers-types"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": false,
-    "declaration": false,
-    "sourceMap": true,
-    "esModuleInterop": true,
+    "noEmit": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },

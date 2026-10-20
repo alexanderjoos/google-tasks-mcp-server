@@ -1,37 +1,24 @@
-#!/usr/bin/env node
 /**
- * Google Tasks MCP サーバー（stdio）。
+ * Worker entry point.
  *
- * 注意: stdout は MCP の JSON-RPC が占有している。
- * ログは必ず stderr（console.error）に出すこと。
+ * OAuthProvider serves the OAuth 2.1 authorization server (/.well-known metadata, /token,
+ * /register, CIMD) and only lets requests with a valid bearer token through to /mcp.
+ * The browser-facing pieces (/authorize consent, Google callback) live in google-handler.ts.
  */
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { registerTools } from "./shared/tools.js";
-import { createTasksApi } from "./auth.js";
-import type { TasksApi } from "./shared/tasks-api.js";
+import OAuthProvider from "@cloudflare/workers-oauth-provider";
+import googleHandler from "./google-handler.js";
+import mcpHandler from "./mcp-handler.js";
 
-const server = new McpServer({
-  name: "google-tasks-mcp-server",
-  version: "0.1.0",
-});
-
-// 遅延初期化。未認証でもサーバーは起動し、ツール実行時に理由を返す。
-let cached: Promise<TasksApi> | null = null;
-registerTools(server, () => {
-  cached ??= createTasksApi().catch((error: unknown) => {
-    cached = null; // 失敗した Promise を残すと認証後も回復しないため破棄する
-    throw error;
-  });
-  return cached;
-});
-
-async function main(): Promise<void> {
-  await server.connect(new StdioServerTransport());
-  console.error("[google-tasks-mcp] stdio で待機中");
-}
-
-main().catch((error: unknown) => {
-  console.error("[google-tasks-mcp] 起動に失敗しました:", error);
-  process.exit(1);
+export default new OAuthProvider({
+  apiRoute: "/mcp",
+  apiHandler: mcpHandler,
+  defaultHandler: googleHandler,
+  authorizeEndpoint: "/authorize",
+  tokenEndpoint: "/token",
+  // Client ID Metadata Documents: the preferred registration method in the current MCP spec.
+  // Needs the global_fetch_strictly_public flag in wrangler.jsonc.
+  clientIdMetadataDocumentEnabled: true,
+  // Dynamic Client Registration, kept for clients that don't support CIMD yet.
+  clientRegistrationEndpoint: "/register",
+  scopesSupported: ["tasks"],
 });

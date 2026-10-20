@@ -1,21 +1,28 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "google-tasks-mcp-server",
-  "main": "worker/index.ts",
+  "name": "gtasks-mcp",
+  "main": "src/index.ts",
   "compatibility_date": "2026-08-19",
-  // MCP SDK が Node 互換 API を参照するため有効化する
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    // The MCP SDK references a few Node-compatible APIs.
+    "nodejs_compat",
+    // Required by workers-oauth-provider for Client ID Metadata Documents (SSRF protection).
+    "global_fetch_strictly_public"
+  ],
   "observability": { "enabled": true },
+  "dev": { "port": 8788 },
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV",
-      "id": "642465aa1d6046d0a17708f64b8180bf"
+      // Create with: npx wrangler kv namespace create OAUTH_KV
+      "id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
     }
   ],
   "vars": {
-    // GOOGLE_CLIENT_SECRET と ALLOWED_EMAIL は vars ではなく
-    // `wrangler secret put` で設定する。前者は秘密情報、
-    // 後者は個人情報を公開リポジトリに残さないため。
-    "GOOGLE_CLIENT_ID": "723034496442-cmkbnv402c183pd2dah3lkgap1n5nkno.apps.googleusercontent.com"
+    // Hosts that MCP clients may redirect back to after authorization.
+    // Anything else is rejected, so a third party can't register a client and phish a token.
+    "ALLOWED_REDIRECT_HOSTS": "claude.ai,claude.com,localhost,127.0.0.1"
   }
+  // Secrets (never commit these; use `npx wrangler secret put <NAME>` or .dev.vars locally):
+  //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, ALLOWED_EMAIL
 }
