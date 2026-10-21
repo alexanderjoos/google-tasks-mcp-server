@@ -39,7 +39,7 @@ export default {
       refreshToken: props.googleRefreshToken,
     });
     registerTaskTools(server, new TasksApi(getAccessToken));
-    registerSheetsTools(server, new SheetsApi(getAccessToken));
+    registerSheetsTools(server, new SheetsApi(getAccessToken), env.TIME_ZONE || "America/New_York");
     registerDocsTools(server, new DocsApi(getAccessToken));
 
     // Stateless: no session IDs, each request is complete on its own, JSON responses (no SSE).

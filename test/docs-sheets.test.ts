@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseGoogleFileId, quoteTabName } from "../src/util.ts";
+import { columnLetter, parseGoogleFileId, quoteTabName } from "../src/util.ts";
 import {
+  buildDeleteRequests,
   buildInsertRequests,
   documentToMarkdown,
   findAnchorParagraph,
+  parseInline,
   parseMarkdownLines,
 } from "../src/docs-format.ts";
 import type { Document, StructuralElement } from "../src/docs-api.ts";
@@ -80,12 +82,12 @@ test("findAnchorParagraph prefers exact, strips markdown, rejects ambiguity", ()
 
 test("parseMarkdownLines handles headings, bullets, CRLF and trailing newlines", () => {
   assert.deepEqual(parseMarkdownLines("## H\r\n- a\n* b\nplain\n\n"), [
-    { text: "H", style: "HEADING_2" },
-    { text: "a", style: "BULLET" },
-    { text: "b", style: "BULLET" },
-    { text: "plain", style: "NORMAL_TEXT" },
+    { text: "H", style: "HEADING_2", spans: [] },
+    { text: "a", style: "BULLET", spans: [] },
+    { text: "b", style: "BULLET", spans: [] },
+    { text: "plain", style: "NORMAL_TEXT", spans: [] },
   ]);
-  assert.deepEqual(parseMarkdownLines("#### deep"), [{ text: "#### deep", style: "NORMAL_TEXT" }]);
+  assert.deepEqual(parseMarkdownLines("#### deep"), [{ text: "#### deep", style: "NORMAL_TEXT", spans: [] }]);
 });
 
 test("buildInsertRequests after a heading: new paragraph, explicit styles, grouped bullets", () => {
@@ -116,4 +118,62 @@ test("buildInsertRequests fills an empty paragraph instead of adding a blank lin
   assert.deepEqual(styles[0].range, { startIndex: 1, endIndex: 7 });
   assert.equal(styles[0].paragraphStyle.namedStyleType, "HEADING_1");
   assert.deepEqual(styles[1].range, { startIndex: 7, endIndex: 12 });
+});
+
+test("columnLetter", () => {
+  assert.deepEqual([1, 26, 27, 52, 702, 703].map(columnLetter), ["A", "Z", "AA", "AZ", "ZZ", "AAA"]);
+});
+
+test("parseInline strips markers and returns spans", () => {
+  assert.deepEqual(parseInline("Call **Steve** re [offer](https://x.com/o) *today*"), {
+    text: "Call Steve re offer today",
+    spans: [
+      { start: 5, end: 10, bold: true },
+      { start: 14, end: 19, link: "https://x.com/o" },
+      { start: 20, end: 25, italic: true },
+    ],
+  });
+  assert.deepEqual(parseInline("5 * 3 * 2 and snake_case_name"), { text: "5 * 3 * 2 and snake_case_name", spans: [] });
+  assert.deepEqual(parseInline("_note_").spans, [{ start: 0, end: 4, italic: true }]);
+});
+
+test("buildInsertRequests resets inherited character style, then applies spans at the right offsets", () => {
+  const heading = findAnchorParagraph(sample, "Next steps"); // [18, 29), new text starts at 29
+  const requests = buildInsertRequests(heading, "- **email** Steve") as Record<string, any>[];
+  assert.equal(requests[0].insertText.text, "\nemail Steve");
+  const textStyles = requests.filter((r) => r.updateTextStyle).map((r) => r.updateTextStyle);
+  assert.deepEqual(textStyles[0], { range: { startIndex: 29, endIndex: 40 }, textStyle: {}, fields: "bold,italic,link" });
+  assert.deepEqual(textStyles[1], { range: { startIndex: 29, endIndex: 34 }, textStyle: { bold: true }, fields: "bold" });
+  assert.throws(() => buildInsertRequests(heading, "\n\n"), /empty/);
+});
+
+test("buildDeleteRequests: single paragraph, section, end-of-doc and guard rails", () => {
+  // sample: Plan[1,6) H1, Intro[6,18), Next steps[18,29) H2, call recruiter[29,44) bullet, Notes[44,50) H2, ""[50,51)
+  const del = (startIndex: number, endIndex: number) => ({ deleteContentRange: { range: { startIndex, endIndex } } });
+  const resetLast = (startIndex: number) => {
+    const range = { startIndex, endIndex: startIndex + 1 };
+    return [
+      { deleteParagraphBullets: { range } },
+      { updateParagraphStyle: { range, paragraphStyle: { namedStyleType: "NORMAL_TEXT" }, fields: "namedStyleType" } },
+    ];
+  };
+
+  const intro = findAnchorParagraph(sample, "Intro");
+  assert.deepEqual(buildDeleteRequests(sample, intro, false), { requests: [del(6, 18)], paragraphs: 1 });
+
+  const next = findAnchorParagraph(sample, "Next steps");
+  assert.deepEqual(buildDeleteRequests(sample, next, true), { requests: [del(18, 44)], paragraphs: 2 });
+
+  // Last section reaches the end of the body: stop before the final newline, leaving the
+  // bullet above untouched, and reset the leftover empty paragraph to plain text.
+  const notes = findAnchorParagraph(sample, "Notes");
+  assert.deepEqual(buildDeleteRequests(sample, notes, true), { requests: [del(44, 50), ...resetLast(44)], paragraphs: 2 });
+
+  // H1 section covers everything except the undeletable final newline.
+  const plan = findAnchorParagraph(sample, "Plan");
+  assert.deepEqual(buildDeleteRequests(sample, plan, true), { requests: [del(1, 50), ...resetLast(1)], paragraphs: 6 });
+
+  assert.throws(() => buildDeleteRequests(sample, intro, true), /isn't a heading/);
+  const lone = makeDoc([{ text: "" }]);
+  assert.throws(() => buildDeleteRequests(lone, { startIndex: 1, endIndex: 2, text: "" }, false), /empty last paragraph/);
 });

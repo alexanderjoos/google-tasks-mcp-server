@@ -52,10 +52,10 @@ export class SheetsApi {
     });
   }
 
-  createSpreadsheet(title: string, tabs: string[]): Promise<Spreadsheet> {
+  createSpreadsheet(title: string, tabs: string[], timeZone?: string): Promise<Spreadsheet> {
     return this.request("POST", "/spreadsheets", {
       body: {
-        properties: { title },
+        properties: { title, ...(timeZone ? { timeZone } : {}) },
         ...(tabs.length ? { sheets: tabs.map((tab) => ({ properties: { title: tab } })) } : {}),
       },
     });

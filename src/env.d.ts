@@ -14,6 +14,8 @@ export interface Env {
   ALLOWED_EMAIL: string;
   /** Comma-separated hostnames that MCP clients may redirect to. Var. */
   ALLOWED_REDIRECT_HOSTS: string;
+  /** IANA time zone for interpreting due dates, e.g. "America/New_York". Var. */
+  TIME_ZONE: string;
 }
 
 /** Stored encrypted in the grant at authorization time and decrypted into ctx.props on /mcp. */

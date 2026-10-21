@@ -21,7 +21,9 @@
   "vars": {
     // Hosts that MCP clients may redirect back to after authorization.
     // Anything else is rejected, so a third party can't register a client and phish a token.
-    "ALLOWED_REDIRECT_HOSTS": "claude.ai,claude.com,localhost,127.0.0.1"
+    "ALLOWED_REDIRECT_HOSTS": "claude.ai,claude.com,localhost,127.0.0.1",
+    // Default time zone for new spreadsheets (and Canvas due dates).
+    "TIME_ZONE": "America/New_York"
   }
   // Secrets (never commit these; use `npx wrangler secret put <NAME>` or .dev.vars locally):
   //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, ALLOWED_EMAIL

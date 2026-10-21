@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DocsApi } from "./docs-api.js";
 import { ok, fail, run } from "./format.js";
-import { bodyParagraphs, buildInsertRequests, documentToMarkdown, findAnchorParagraph } from "./docs-format.js";
+import { bodyParagraphs, buildDeleteRequests, buildInsertRequests, documentToMarkdown, findAnchorParagraph } from "./docs-format.js";
 import { parseGoogleFileId } from "./util.js";
 
 /** Keeps docs_read responses a sensible size for a chat model. */
@@ -20,8 +20,8 @@ const contentArg = z
   .string()
   .min(1)
   .describe(
-    "Text to insert. One paragraph per line. Supports '# ', '## ', '### ' headings and '- ' bullets; " +
-      "other Markdown (bold, links, tables) is inserted as plain text.",
+    "Text to insert. One paragraph per line. Supports '# ', '## ', '### ' headings, '- ' bullets, " +
+      "**bold**, *italic* and [links](https://...). Other Markdown (tables, code, nesting) is inserted as plain text.",
   );
 
 function docUrl(id: string): string {
@@ -85,6 +85,32 @@ export function registerDocsTools(server: McpServer, api: DocsApi): void {
         const anchor = findAnchorParagraph(doc, anchor_text);
         await api.batchUpdate(id, buildInsertRequests(anchor, content), doc.revisionId);
         return ok({ inserted_after: anchor.text, url: docUrl(id) });
+      }),
+  );
+
+  server.registerTool(
+    "docs_delete",
+    {
+      title: "Delete from doc",
+      description:
+        "Delete the one paragraph matching anchor_text. With whole_section, the anchor must be a heading, and the heading " +
+        "plus everything under it (up to the next heading of the same or higher level, tables included) is deleted. " +
+        "Read the doc first. Recoverable from the doc's version history.",
+      inputSchema: {
+        document: documentArg,
+        anchor_text: z.string().min(1).describe("Text of the paragraph (or heading) to delete."),
+        whole_section: z.boolean().default(false).describe("Delete the heading's whole section. Default false."),
+      },
+      annotations: { destructiveHint: true },
+    },
+    async ({ document, anchor_text, whole_section }) =>
+      run(async () => {
+        const id = parseGoogleFileId(document);
+        const doc = await api.getDocument(id);
+        const anchor = findAnchorParagraph(doc, anchor_text);
+        const { requests, paragraphs } = buildDeleteRequests(doc, anchor, whole_section);
+        await api.batchUpdate(id, requests, doc.revisionId);
+        return ok({ deleted: anchor.text, paragraphs, url: docUrl(id) });
       }),
   );
 

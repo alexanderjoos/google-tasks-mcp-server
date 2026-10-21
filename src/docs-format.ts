@@ -67,6 +67,15 @@ export interface ParagraphRef {
   startIndex: number;
   endIndex: number;
   text: string;
+  /** Heading level: 0 for TITLE, 1-6 for HEADING_n. Undefined for body text. */
+  level?: number;
+}
+
+function headingLevel(paragraph: Paragraph): number | undefined {
+  const style = paragraph.paragraphStyle?.namedStyleType ?? "";
+  if (style === "TITLE") return 0;
+  const m = /^HEADING_(\d)$/.exec(style);
+  return m ? Number(m[1]) : undefined;
 }
 
 /** Top-level body paragraphs (not inside tables), with their indexes. */
@@ -74,7 +83,13 @@ export function bodyParagraphs(doc: Document): ParagraphRef[] {
   const refs: ParagraphRef[] = [];
   for (const element of doc.body?.content ?? []) {
     if (!element.paragraph || element.startIndex === undefined || element.endIndex === undefined) continue;
-    refs.push({ startIndex: element.startIndex, endIndex: element.endIndex, text: paragraphText(element.paragraph) });
+    const level = headingLevel(element.paragraph);
+    refs.push({
+      startIndex: element.startIndex,
+      endIndex: element.endIndex,
+      text: paragraphText(element.paragraph),
+      ...(level === undefined ? {} : { level }),
+    });
   }
   return refs;
 }
@@ -104,20 +119,52 @@ export function findAnchorParagraph(doc: Document, anchor: string): ParagraphRef
 
 type LineStyle = "NORMAL_TEXT" | "HEADING_1" | "HEADING_2" | "HEADING_3" | "BULLET";
 
+export interface InlineSpan {
+  start: number;
+  end: number;
+  bold?: boolean;
+  italic?: boolean;
+  link?: string;
+}
+
 interface ParsedLine {
   text: string;
   style: LineStyle;
+  spans: InlineSpan[];
 }
 
-/** Light Markdown: "# ", "## ", "### " headings and "- " / "* " bullets. Everything else is plain text. */
+/**
+ * Inline Markdown: **bold**, *italic* / _italic_, and [text](https://url). Markers are removed
+ * and the formatting is returned as spans over the plain text. No nesting.
+ */
+export function parseInline(input: string): { text: string; spans: InlineSpan[] } {
+  const pattern = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|\*\*([^*]+)\*\*|\*([^*\s][^*]*?)\*|(?<![\w])_([^_\s][^_]*?)_(?![\w])/g;
+  let text = "";
+  const spans: InlineSpan[] = [];
+  let last = 0;
+  for (const m of input.matchAll(pattern)) {
+    text += input.slice(last, m.index);
+    const [, linkText, url, bold, star, under] = m;
+    const inner = linkText ?? bold ?? star ?? under ?? "";
+    const span: InlineSpan = { start: text.length, end: text.length + inner.length };
+    if (url) span.link = url;
+    else if (bold) span.bold = true;
+    else span.italic = true;
+    spans.push(span);
+    text += inner;
+    last = m.index + m[0].length;
+  }
+  return { text: text + input.slice(last), spans };
+}
+
+/** Light Markdown: "# ", "## ", "### " headings, "- " / "* " bullets, plus inline formatting. */
 export function parseMarkdownLines(input: string): ParsedLine[] {
   const lines = input.replace(/\r\n?/g, "\n").replace(/\n+$/, "").split("\n");
   return lines.map((line) => {
     const heading = /^(#{1,3})\s+(.*)$/.exec(line);
-    if (heading) return { text: heading[2]!, style: `HEADING_${heading[1]!.length}` as LineStyle };
-    const bullet = /^\s*[-*]\s+(.*)$/.exec(line);
-    if (bullet) return { text: bullet[1]!, style: "BULLET" };
-    return { text: line, style: "NORMAL_TEXT" };
+    const bullet = heading ? null : /^\s*[-*]\s+(.*)$/.exec(line);
+    const style: LineStyle = heading ? (`HEADING_${heading[1]!.length}` as LineStyle) : bullet ? "BULLET" : "NORMAL_TEXT";
+    return { ...parseInline(heading ? heading[2]! : bullet ? bullet[1]! : line), style };
   });
 }
 
@@ -125,13 +172,15 @@ export function parseMarkdownLines(input: string): ParsedLine[] {
  * Requests that insert `markdown` as new paragraphs right after `after`.
  *
  * Inserting "\n" + text just before the anchor's trailing newline closes the anchor paragraph
- * and starts new ones. New paragraphs inherit the anchor's style (a heading stays a heading),
- * so every inserted line gets its style set explicitly. If the anchor is an empty paragraph,
- * the text fills it instead of leaving a blank line.
+ * and starts new ones. New text inherits the anchor's paragraph style (a heading stays a heading)
+ * and its character style (bold, links), so both are reset explicitly before applying what the
+ * Markdown asks for. If the anchor is an empty paragraph, the text fills it instead of leaving a
+ * blank line.
  */
 export function buildInsertRequests(after: ParagraphRef, markdown: string): object[] {
   const lines = parseMarkdownLines(markdown);
   const plain = lines.map((line) => line.text).join("\n");
+  if (!plain.trim()) throw new Error("content is empty.");
   const fillEmpty = after.text === "";
   const insertAt = after.endIndex - 1;
   const start = fillEmpty ? after.startIndex : after.endIndex;
@@ -141,6 +190,9 @@ export function buildInsertRequests(after: ParagraphRef, markdown: string): obje
     // Clear any bullet inherited from the anchor; bullets are re-added below where asked.
     { deleteParagraphBullets: { range: { startIndex: start, endIndex: start + plain.length + 1 } } },
   ];
+  requests.push({
+    updateTextStyle: { range: { startIndex: start, endIndex: start + plain.length }, textStyle: {}, fields: "bold,italic,link" },
+  });
 
   let offset = start;
   let bulletRunStart: number | null = null;
@@ -165,10 +217,61 @@ export function buildInsertRequests(after: ParagraphRef, markdown: string): obje
         fields: "namedStyleType",
       },
     });
+    for (const span of line.spans) {
+      const textStyle = span.link ? { link: { url: span.link } } : span.bold ? { bold: true } : { italic: true };
+      requests.push({
+        updateTextStyle: {
+          range: { startIndex: offset + span.start, endIndex: offset + span.end },
+          textStyle,
+          fields: span.link ? "link" : span.bold ? "bold" : "italic",
+        },
+      });
+    }
     if (line.style === "BULLET") bulletRunStart ??= offset;
     else closeBulletRun(offset);
     offset = range.endIndex;
   }
   closeBulletRun(offset);
   return requests;
+}
+
+/**
+ * Requests that delete a paragraph, or a heading's whole section (the heading plus everything
+ * up to the next heading of the same or higher level). Also returns how many paragraphs it covers.
+ *
+ * A document's final newline can't be deleted, so a range reaching the end of the body stops
+ * just before it, leaving an empty last paragraph. (Taking the preceding newline instead would
+ * merge the previous paragraph into the last one and silently change its style.) That empty
+ * paragraph keeps the style of the deleted last paragraph, e.g. a bullet, so it is reset to plain text.
+ */
+export function buildDeleteRequests(
+  doc: Document,
+  anchor: ParagraphRef,
+  wholeSection: boolean,
+): { requests: object[]; paragraphs: number } {
+  if (wholeSection && anchor.level === undefined) {
+    throw new Error(`"${anchor.text}" isn't a heading, so it has no section. Delete it as a single paragraph instead.`);
+  }
+  const content = doc.body?.content ?? [];
+  const bodyEnd = content.at(-1)?.endIndex ?? anchor.endIndex;
+  const paragraphs = bodyParagraphs(doc);
+  let end = anchor.endIndex;
+  if (wholeSection) {
+    const next = paragraphs.find((p) => p.startIndex > anchor.startIndex && p.level !== undefined && p.level <= anchor.level!);
+    end = next ? next.startIndex : bodyEnd;
+  }
+  const covered = paragraphs.filter((p) => p.startIndex >= anchor.startIndex && p.endIndex <= end).length;
+  const start = anchor.startIndex;
+  const atEnd = end >= bodyEnd;
+  if (atEnd) end = bodyEnd - 1;
+  if (end <= start) throw new Error("Nothing to delete: that's the document's empty last paragraph.");
+  const requests: object[] = [{ deleteContentRange: { range: { startIndex: start, endIndex: end } } }];
+  if (atEnd) {
+    const last = { startIndex: start, endIndex: start + 1 };
+    requests.push(
+      { deleteParagraphBullets: { range: last } },
+      { updateParagraphStyle: { range: last, paragraphStyle: { namedStyleType: "NORMAL_TEXT" }, fields: "namedStyleType" } },
+    );
+  }
+  return { requests, paragraphs: covered };
 }

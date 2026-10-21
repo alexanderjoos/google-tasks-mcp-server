@@ -33,18 +33,20 @@ Sheets and Docs tools take a file URL or ID:
 |---|---|
 | `sheets_get_info` | Title and tabs with sizes |
 | `sheets_read` | Read a range, as displayed, raw, or as formulas (capped at 5,000 cells) |
+| `sheets_find_rows` | Find rows containing some text, optionally in one column by header name; returns each row's range |
 | `sheets_write` | Overwrite a range; input is parsed like typing in the UI unless `raw` |
 | `sheets_append_rows` | Add rows under the existing data in a tab |
 | `sheets_clear` | Clear values in a range |
 | `sheets_add_tab` | Add a tab |
-| `sheets_create` | New spreadsheet, optional tabs and starting rows |
+| `sheets_create` | New spreadsheet, optional tabs, starting rows and time zone |
 | `docs_read` | Doc as light Markdown (first tab only) |
 | `docs_append` | Add paragraphs at the end |
 | `docs_insert_after` | Add paragraphs after the one paragraph matching some text, e.g. a heading |
 | `docs_replace_text` | Replace every occurrence of some text, keeping formatting |
+| `docs_delete` | Delete one paragraph, or a heading and everything under it |
 | `docs_create` | New doc with optional content |
 
-Docs inserts understand `#`/`##`/`###` headings and `-` bullets, one paragraph per line. Index-based edits are computed from a fresh read and sent with the doc's revision ID, so a concurrent edit makes the call fail instead of landing in the wrong place.
+Docs inserts understand `#`/`##`/`###` headings, `-` bullets, `**bold**`, `*italic*` and `[links](https://...)`, one paragraph per line. Index-based edits are computed from a fresh read and sent with the doc's revision ID, so a concurrent edit makes the call fail instead of landing in the wrong place.
 
 There's deliberately no Drive scope: Drive's file-listing scopes are Google "restricted" scopes, and Claude's built-in Google Drive connector can already search and return the file link.
 

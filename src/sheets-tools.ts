@@ -2,11 +2,14 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CellValue, SheetsApi, Spreadsheet, ValueRenderOption } from "./sheets-api.js";
 import { ok, fail, run } from "./format.js";
-import { parseGoogleFileId, quoteTabName } from "./util.js";
+import { columnLetter, parseGoogleFileId, quoteTabName } from "./util.js";
 
 /** Caps that keep tool responses and writes a sensible size for a chat model. */
 const MAX_READ_CELLS = 5000;
 const MAX_WRITE_CELLS = 10000;
+/** Rows scanned by sheets_find_rows, and matches returned. */
+const MAX_SCAN_ROWS = 5000;
+const MAX_MATCHES = 50;
 
 const spreadsheetArg = z
   .string()
@@ -64,7 +67,7 @@ function compactSpreadsheet(sheet: Spreadsheet) {
   };
 }
 
-export function registerSheetsTools(server: McpServer, api: SheetsApi): void {
+export function registerSheetsTools(server: McpServer, api: SheetsApi, timeZone: string): void {
   server.registerTool(
     "sheets_get_info",
     {
@@ -108,6 +111,56 @@ export function registerSheetsTools(server: McpServer, api: SheetsApi): void {
           range: data.range,
           rows,
           ...(truncated ? { truncated: true, note: `Stopped at ${rows.length} rows. Read the rest with a narrower range.` } : {}),
+        });
+      }),
+  );
+
+  server.registerTool(
+    "sheets_find_rows",
+    {
+      title: "Find rows",
+      description:
+        "Find rows in a tab whose cells contain some text (case-insensitive), e.g. the 'Fidelity' row of a job tracker. " +
+        "Treats row 1 as the header. Returns each match's row number and exact A1 range, ready for sheets_write.",
+      inputSchema: {
+        spreadsheet: spreadsheetArg,
+        tab: z.string().min(1).optional().describe("Tab name. Defaults to the first tab."),
+        query: z.string().min(1).describe("Text to look for."),
+        column: z.string().min(1).optional().describe("Only search this column, by header name (e.g. 'Company'). Default: all columns."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ spreadsheet, tab, query, column }) =>
+      run(async () => {
+        const range = `${tab === undefined ? "" : quoteTabName(tab) + "!"}A1:ZZ${MAX_SCAN_ROWS}`;
+        const data = await api.getValues(parseGoogleFileId(spreadsheet), range, "FORMATTED_VALUE");
+        const rows = data.values ?? [];
+        const header = (rows[0] ?? []).map((cell) => String(cell ?? ""));
+        let columnIndex: number | undefined;
+        if (column !== undefined) {
+          columnIndex = header.findIndex((h) => h.trim().toLowerCase() === column.trim().toLowerCase());
+          if (columnIndex < 0) return fail(`No header named "${column}". Headers: ${header.filter(Boolean).join(", ")}`);
+        }
+        // The response range names the tab actually read ("Sheet1!A1:F40"), which matters when tab was omitted.
+        const tabPrefix = data.range?.includes("!") ? data.range.slice(0, data.range.lastIndexOf("!") + 1) : "";
+        const needle = query.toLowerCase();
+        const width = Math.max(header.length, 1);
+        const matches = [];
+        let total = 0;
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i] ?? [];
+          const cells = columnIndex === undefined ? row : [row[columnIndex]];
+          if (!cells.some((cell) => String(cell ?? "").toLowerCase().includes(needle))) continue;
+          total++;
+          if (matches.length < MAX_MATCHES) {
+            matches.push({ row: i + 1, range: `${tabPrefix}A${i + 1}:${columnLetter(Math.max(width, row.length))}${i + 1}`, values: row });
+          }
+        }
+        return ok({
+          header,
+          matches,
+          ...(total > matches.length ? { total_matches: total, note: "Showing the first matches only. Narrow the query." } : {}),
+          ...(rows.length >= MAX_SCAN_ROWS ? { note_scan: `Only the first ${MAX_SCAN_ROWS} rows were searched.` } : {}),
         });
       }),
   );
@@ -189,13 +242,17 @@ export function registerSheetsTools(server: McpServer, api: SheetsApi): void {
       inputSchema: {
         title: z.string().min(1).describe("Spreadsheet title."),
         tabs: z.array(z.string().min(1)).default([]).describe("Tab names. Defaults to one tab named 'Sheet1'."),
+        time_zone: z
+          .string()
+          .optional()
+          .describe(`IANA time zone for the sheet, which TODAY() and NOW() use. Defaults to ${timeZone}.`),
         rows: valuesArg.optional().describe("Optional starting rows for the first tab, e.g. a header row."),
       },
     },
-    async ({ title, tabs, rows }) =>
+    async ({ title, tabs, rows, time_zone }) =>
       run(async () => {
         if (rows && cellCount(rows) > MAX_WRITE_CELLS) return fail(`Too many cells (max ${MAX_WRITE_CELLS}). Create first, then append.`);
-        const sheet = await api.createSpreadsheet(title, tabs);
+        const sheet = await api.createSpreadsheet(title, tabs, time_zone ?? timeZone);
         if (rows && sheet.spreadsheetId) {
           const firstTab = sheet.sheets?.[0]?.properties?.title ?? "Sheet1";
           await api.updateValues(sheet.spreadsheetId, `${quoteTabName(firstTab)}!A1`, rows, false);

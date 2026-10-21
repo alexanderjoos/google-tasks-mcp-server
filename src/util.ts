@@ -116,3 +116,12 @@ export function parseGoogleFileId(input: string): string {
 export function quoteTabName(tab: string): string {
   return `'${tab.replaceAll("'", "''")}'`;
 }
+
+/** 1-based column number to A1 letters: 1 -> A, 27 -> AA. */
+export function columnLetter(column: number): string {
+  let letters = "";
+  for (let n = column; n > 0; n = Math.floor((n - 1) / 26)) {
+    letters = String.fromCharCode(65 + ((n - 1) % 26)) + letters;
+  }
+  return letters;
+}
