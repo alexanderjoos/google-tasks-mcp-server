@@ -60,6 +60,7 @@ Claude ──MCP (Streamable HTTP, OAuth 2.1)──▶ Worker ──Google acces
 
 - `@cloudflare/workers-oauth-provider` makes the Worker an OAuth 2.1 authorization server. It supports Client ID Metadata Documents and Dynamic Client Registration, and gates `/mcp` behind bearer tokens.
 - `/authorize` shows a consent page, then hands off to Google. `/callback` checks the Google account against `ALLOWED_EMAIL` (one or more, comma-separated) and stores the Google refresh token in the grant's encrypted props. The token never reaches Claude.
+- With several allowed accounts (say school and personal), one connection links them all. Google Tasks can't be shared between accounts, so Tasks use one account (`TASKS_ACCOUNT`). Sheets and Docs try each account in `ALLOWED_EMAIL` order and use the first that can open the file.
 - `/mcp` is stateless. Each request mints a fresh Google access token from the refresh token and serves one JSON-RPC exchange.
 
 ## Origin and security

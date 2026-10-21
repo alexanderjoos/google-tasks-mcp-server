@@ -36,8 +36,9 @@ export interface ListResponse<T> {
 export class TasksApi {
   private readonly request: ReturnType<typeof createGoogleClient>;
 
-  constructor(getAccessToken: AccessTokenProvider) {
-    this.request = createGoogleClient("Google Tasks", BASE, getAccessToken);
+  /** Accounts to try in order; see createGoogleClient. */
+  constructor(accounts: AccessTokenProvider[]) {
+    this.request = createGoogleClient("Google Tasks", BASE, accounts);
   }
 
   listTaskLists(query: { maxResults?: number; pageToken?: string } = {}): Promise<ListResponse<TaskList>> {

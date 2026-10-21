@@ -10,8 +10,10 @@ export interface Env {
   GOOGLE_CLIENT_ID: string;
   /** Google OAuth client secret. Secret. */
   GOOGLE_CLIENT_SECRET: string;
-  /** Comma-separated Google accounts allowed to authorize. Secret, to keep it out of the repo. */
+  /** Comma-separated Google accounts allowed to authorize, in the order Sheets/Docs try them. Secret, to keep it out of the repo. */
   ALLOWED_EMAIL: string;
+  /** Optional: the linked account Google Tasks uses. Defaults to the first in ALLOWED_EMAIL. Secret. */
+  TASKS_ACCOUNT?: string;
   /** Comma-separated hostnames that MCP clients may redirect to. Var. */
   ALLOWED_REDIRECT_HOSTS: string;
   /** IANA time zone for interpreting due dates, e.g. "America/New_York". Var. */
@@ -20,6 +22,9 @@ export interface Env {
 
 /** Stored encrypted in the grant at authorization time and decrypted into ctx.props on /mcp. */
 export interface UserProps {
-  email: string;
-  googleRefreshToken: string;
+  /** Linked Google accounts, email → refresh token. */
+  accounts?: Record<string, string>;
+  /** Single-account grants from before multi-account support. */
+  email?: string;
+  googleRefreshToken?: string;
 }

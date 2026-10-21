@@ -35,12 +35,15 @@ Set the secrets:
 npx wrangler secret put GOOGLE_CLIENT_ID
 npx wrangler secret put GOOGLE_CLIENT_SECRET
 npx wrangler secret put ALLOWED_EMAIL      # your Google account(s), comma-separated; only these can connect
+npx wrangler secret put TASKS_ACCOUNT      # optional, with several accounts: the one whose Google Tasks to use
 ```
+
+With several accounts in `ALLOWED_EMAIL`, connecting signs in to each in turn (you can skip any). Sheets and Docs try them in the listed order and use the first that can open the file. Tasks use `TASKS_ACCOUNT`, or the first account if it's not set.
 
 ## 3. Test locally (optional but recommended)
 
 ```bash
-cp .dev.vars.example .dev.vars   # fill in the same three values
+cp .dev.vars.example .dev.vars   # fill in the same values
 npm run dev                      # http://localhost:8788
 ```
 

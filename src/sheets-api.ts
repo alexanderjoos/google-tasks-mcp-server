@@ -41,8 +41,9 @@ export type ValueRenderOption = "FORMATTED_VALUE" | "UNFORMATTED_VALUE" | "FORMU
 export class SheetsApi {
   private readonly request: ReturnType<typeof createGoogleClient>;
 
-  constructor(getAccessToken: AccessTokenProvider) {
-    this.request = createGoogleClient("Google Sheets", BASE, getAccessToken);
+  /** Accounts to try in order; see createGoogleClient. */
+  constructor(accounts: AccessTokenProvider[]) {
+    this.request = createGoogleClient("Google Sheets", BASE, accounts);
   }
 
   /** Title and tab list only, not cell data. */

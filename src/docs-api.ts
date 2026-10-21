@@ -41,8 +41,9 @@ export interface BatchUpdateResponse {
 export class DocsApi {
   private readonly request: ReturnType<typeof createGoogleClient>;
 
-  constructor(getAccessToken: AccessTokenProvider) {
-    this.request = createGoogleClient("Google Docs", BASE, getAccessToken);
+  /** Accounts to try in order; see createGoogleClient. */
+  constructor(accounts: AccessTokenProvider[]) {
+    this.request = createGoogleClient("Google Docs", BASE, accounts);
   }
 
   /** Without includeTabsContent, the body is the first tab's content. */

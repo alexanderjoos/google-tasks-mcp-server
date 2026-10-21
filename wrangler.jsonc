@@ -26,5 +26,5 @@
     "TIME_ZONE": "America/New_York"
   }
   // Secrets (never commit these; use `npx wrangler secret put <NAME>` or .dev.vars locally):
-  //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, ALLOWED_EMAIL
+  //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, ALLOWED_EMAIL, TASKS_ACCOUNT (optional)
 }

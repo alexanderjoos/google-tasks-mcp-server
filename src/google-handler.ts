@@ -2,20 +2,24 @@
  * Browser-facing OAuth flow: consent page, hand-off to Google, and the Google callback.
  *
  * To Claude, this Worker is the authorization server. Identity is delegated to Google, and the
- * Google refresh token is stored only inside the provider's encrypted grant props. It is never
+ * Google refresh tokens are stored only inside the provider's encrypted grant props. They are never
  * sent to the MCP client.
+ *
+ * One connection can link several allowlisted Google accounts: after each Google sign-in, a page
+ * offers to link the next one, or to finish with the accounts linked so far.
  *
  * Defenses, in order:
  *   1. Redirect URI host allowlist (open client registration otherwise allows token phishing).
  *   2. Explicit consent page naming the client, bound to the browser by a SameSite=Lax cookie,
  *      so a cross-site auto-submitted form can't approve on the owner's behalf.
  *   3. One-time, short-lived pending-authorization records in KV (CSRF "state" for Google).
- *   4. Single-user allowlist on the verified Google email.
+ *   4. Allowlist on the verified Google email.
  */
 import { AuthorizationError, type AuthRequest } from "@cloudflare/workers-oauth-provider";
 import type { Env, UserProps } from "./env.js";
 import { buildAuthUrl, exchangeCode, fetchUserEmail } from "./google-oauth.js";
 import { escapeHtml, getCookie, isAllowedRedirect, parseList, safeEqual } from "./util.js";
+import { resolveAccounts } from "./accounts.js";
 
 const PENDING_PREFIX = "gtasks:pending:";
 const PENDING_TTL_SECONDS = 600;
@@ -25,6 +29,11 @@ interface Pending {
   authRequest: AuthRequest;
   csrf: string;
   clientName: string;
+  /**
+   * Accounts linked so far, email → refresh token. Held in KV only between sign-ins, for at most
+   * PENDING_TTL_SECONDS, then moved into the encrypted grant.
+   */
+  accounts?: Record<string, string>;
 }
 
 const SECURITY_HEADERS = {
@@ -146,21 +155,69 @@ async function handleDecision(request: Request, env: Env): Promise<Response> {
     return page("<h1>Session expired</h1><p>This approval is no longer valid. Start the connection again from Claude.</p>", 400);
   }
 
-  if (decision !== "approve") {
+  if (decision === "finish" && pending.accounts && Object.keys(pending.accounts).length > 0) {
+    await env.OAUTH_KV.delete(PENDING_PREFIX + id);
+    return completeAuthorization(env, pending, pending.accounts);
+  }
+
+  if (decision !== "approve" && decision !== "link") {
     await env.OAUTH_KV.delete(PENDING_PREFIX + id);
     return clientError(pending.authRequest, "access_denied", "The user denied the request.");
   }
 
-  const allowed = parseList(env.ALLOWED_EMAIL);
+  // Preselect the next account only once an allowed account has signed in. Before that, anyone who
+  // can reach the consent page would see the allowlisted email in the Google URL.
+  const linked = pending.accounts ?? {};
+  const next = Object.keys(linked).length ? parseList(env.ALLOWED_EMAIL).find((email) => !(email in linked)) : undefined;
   return redirect(
     buildAuthUrl({
       clientId: env.GOOGLE_CLIENT_ID,
       redirectUri: callbackUrl(request),
       state: id,
-      // With one allowed account, preselect it; with several, let the user pick in Google's chooser.
-      loginHint: allowed.length === 1 ? allowed[0] : undefined,
+      loginHint: next,
     }),
   );
+}
+
+/**
+ * After a Google sign-in, offer to link the next allowlisted account or finish. Stores the
+ * pending authorization under a fresh one-time ID. `note` must already be escaped.
+ */
+async function linkNextPage(env: Env, pending: Pending, next: string, note = ""): Promise<Response> {
+  const id = crypto.randomUUID();
+  await env.OAUTH_KV.put(PENDING_PREFIX + id, JSON.stringify(pending), { expirationTtl: PENDING_TTL_SECONDS });
+  const linked = Object.keys(pending.accounts ?? {});
+  const finish = linked.length
+    ? `<button type="submit" name="decision" value="finish">Finish with ${linked.length === 1 ? "this account" : "these accounts"}</button>`
+    : `<button type="submit" name="decision" value="deny">Cancel</button>`;
+  return page(
+    `<h1>Link another account?</h1>${note}` +
+      (linked.length ? `<p>Linked: ${linked.map((email) => `<code>${escapeHtml(email)}</code>`).join(", ")}</p>` : "") +
+      `<p>You can also link <code>${escapeHtml(next)}</code>. Google Tasks use one account, and Sheets and Docs ` +
+      `use whichever linked account can open the file.</p>` +
+      `<form method="post" action="/authorize/decide" class="row">` +
+      `<input type="hidden" name="id" value="${escapeHtml(id)}">` +
+      `<button class="primary" type="submit" name="decision" value="link">Link ${escapeHtml(next)}</button>` +
+      finish +
+      `</form>`,
+    200,
+    { "Set-Cookie": csrfCookie(pending.csrf, PENDING_TTL_SECONDS) },
+  );
+}
+
+async function completeAuthorization(env: Env, pending: Pending, accounts: Record<string, string>): Promise<Response> {
+  const props: UserProps = { accounts };
+  const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
+    request: pending.authRequest,
+    // The preferred file account, so reconnecting replaces the grant from the last connection.
+    userId: resolveAccounts(accounts, parseList(env.ALLOWED_EMAIL), undefined).files[0] ?? Object.keys(accounts)[0]!,
+    metadata: { clientName: pending.clientName },
+    scope: pending.authRequest.scope.filter((s) => s === "tasks"),
+    props,
+    // Re-authorizing replaces the old grant instead of piling them up.
+    revokeExistingGrants: true,
+  });
+  return redirect(redirectTo, { "Set-Cookie": csrfCookie("", 0) });
 }
 
 async function handleCallback(request: Request, env: Env): Promise<Response> {
@@ -173,8 +230,18 @@ async function handleCallback(request: Request, env: Env): Promise<Response> {
   // One-time use.
   await env.OAUTH_KV.delete(PENDING_PREFIX + id);
 
+  const allowed = parseList(env.ALLOWED_EMAIL);
+  const nextUnlinked = () => allowed.find((email) => !(email in (pending.accounts ?? {})));
+
   const googleError = url.searchParams.get("error");
-  if (googleError) return clientError(pending.authRequest, "access_denied", `Google returned: ${googleError}`);
+  if (googleError) {
+    // A failed second sign-in (cancelled, or blocked by a school's admin) keeps the accounts already linked.
+    const next = nextUnlinked();
+    if (pending.accounts && next) {
+      return linkNextPage(env, pending, next, `<p>Google returned <code>${escapeHtml(googleError)}</code>.</p>`);
+    }
+    return clientError(pending.authRequest, "access_denied", `Google returned: ${googleError}`);
+  }
 
   const code = url.searchParams.get("code");
   if (!code) return page("<h1>Bad response</h1><p>Google did not return an authorization code.</p>", 400);
@@ -195,23 +262,17 @@ async function handleCallback(request: Request, env: Env): Promise<Response> {
 
   // Personal server: only the allowlisted, verified Google accounts may authorize.
   const { email, verified } = await fetchUserEmail(token.access_token);
-  if (!verified || !parseList(env.ALLOWED_EMAIL).includes(email.toLowerCase())) {
-    return page(`<h1>Not allowed</h1><p><code>${escapeHtml(email)}</code> is not authorized to use this server.</p>`, 403, {
-      "Set-Cookie": csrfCookie("", 0),
-    });
+  if (!verified || !allowed.includes(email.toLowerCase())) {
+    const notAllowed = `<p><code>${escapeHtml(email)}</code> is not authorized to use this server.</p>`;
+    const next = nextUnlinked();
+    if (pending.accounts && next) return linkNextPage(env, pending, next, notAllowed);
+    return page(`<h1>Not allowed</h1>${notAllowed}`, 403, { "Set-Cookie": csrfCookie("", 0) });
   }
 
-  const props: UserProps = { email, googleRefreshToken: token.refresh_token };
-  const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
-    request: pending.authRequest,
-    userId: email,
-    metadata: { clientName: pending.clientName },
-    scope: pending.authRequest.scope.filter((s) => s === "tasks"),
-    props,
-    // Re-authorizing replaces the old grant instead of piling them up.
-    revokeExistingGrants: true,
-  });
-  return redirect(redirectTo, { "Set-Cookie": csrfCookie("", 0) });
+  pending.accounts = { ...pending.accounts, [email.toLowerCase()]: token.refresh_token };
+  const next = nextUnlinked();
+  if (next) return linkNextPage(env, pending, next);
+  return completeAuthorization(env, pending, pending.accounts);
 }
 
 export default {

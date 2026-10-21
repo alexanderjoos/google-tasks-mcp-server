@@ -1,4 +1,6 @@
 # Copy to .dev.vars for `npm run dev`. .dev.vars is gitignored.
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
-ALLOWED_EMAIL=you@gmail.com,you@school.edu
+ALLOWED_EMAIL=you@school.edu,you@gmail.com
+# Optional: which account's Google Tasks to use. Defaults to the first in ALLOWED_EMAIL.
+TASKS_ACCOUNT=you@gmail.com
