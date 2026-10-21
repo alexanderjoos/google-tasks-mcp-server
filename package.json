@@ -2,7 +2,7 @@
   "name": "gtasks-mcp",
   "version": "1.0.0",
   "private": true,
-  "description": "Remote MCP server for Google Tasks, Sheets and Docs on Cloudflare Workers, single-user, OAuth 2.1",
+  "description": "Remote MCP server for Google Tasks, Sheets and Docs on Cloudflare Workers, personal, OAuth 2.1",
   "type": "module",
   "license": "MIT",
   "scripts": {

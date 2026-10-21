@@ -15,7 +15,7 @@
 import { AuthorizationError, type AuthRequest } from "@cloudflare/workers-oauth-provider";
 import type { Env, UserProps } from "./env.js";
 import { buildAuthUrl, exchangeCode, fetchUserEmail } from "./google-oauth.js";
-import { escapeHtml, getCookie, isAllowedRedirect, parseHostList, safeEqual } from "./util.js";
+import { escapeHtml, getCookie, isAllowedRedirect, parseList, safeEqual } from "./util.js";
 
 const PENDING_PREFIX = "gtasks:pending:";
 const PENDING_TTL_SECONDS = 600;
@@ -92,7 +92,7 @@ async function handleAuthorize(request: Request, env: Env): Promise<Response> {
   } catch (error) {
     if (!(error instanceof AuthorizationError)) throw error;
     // Unknown clients and invalid redirects are rendered locally, never redirected.
-    if (!error.redirectUri || !isAllowedRedirect(error.redirectUri, parseHostList(env.ALLOWED_REDIRECT_HOSTS))) {
+    if (!error.redirectUri || !isAllowedRedirect(error.redirectUri, parseList(env.ALLOWED_REDIRECT_HOSTS))) {
       return page(`<h1>Invalid request</h1><p>${escapeHtml(error.description)}</p>`, 400);
     }
     const url = new URL(error.redirectUri);
@@ -106,7 +106,7 @@ async function handleAuthorize(request: Request, env: Env): Promise<Response> {
   const client = await env.OAUTH_PROVIDER.lookupClient(authRequest.clientId);
   if (!client) return page("<h1>Unknown client</h1><p>This request came from an unregistered client.</p>", 400);
 
-  if (!isAllowedRedirect(authRequest.redirectUri, parseHostList(env.ALLOWED_REDIRECT_HOSTS))) {
+  if (!isAllowedRedirect(authRequest.redirectUri, parseList(env.ALLOWED_REDIRECT_HOSTS))) {
     return page(
       `<h1>Redirect not allowed</h1><p>This server only sends authorizations back to approved MCP clients. ` +
         `<code>${escapeHtml(authRequest.redirectUri)}</code> is not one of them.</p>` +
@@ -151,12 +151,14 @@ async function handleDecision(request: Request, env: Env): Promise<Response> {
     return clientError(pending.authRequest, "access_denied", "The user denied the request.");
   }
 
+  const allowed = parseList(env.ALLOWED_EMAIL);
   return redirect(
     buildAuthUrl({
       clientId: env.GOOGLE_CLIENT_ID,
       redirectUri: callbackUrl(request),
       state: id,
-      loginHint: env.ALLOWED_EMAIL,
+      // With one allowed account, preselect it; with several, let the user pick in Google's chooser.
+      loginHint: allowed.length === 1 ? allowed[0] : undefined,
     }),
   );
 }
@@ -191,9 +193,9 @@ async function handleCallback(request: Request, env: Env): Promise<Response> {
     );
   }
 
-  // Single-user server: only the allowlisted, verified Google account may authorize.
+  // Personal server: only the allowlisted, verified Google accounts may authorize.
   const { email, verified } = await fetchUserEmail(token.access_token);
-  if (!verified || email.toLowerCase() !== env.ALLOWED_EMAIL.trim().toLowerCase()) {
+  if (!verified || !parseList(env.ALLOWED_EMAIL).includes(email.toLowerCase())) {
     return page(`<h1>Not allowed</h1><p><code>${escapeHtml(email)}</code> is not authorized to use this server.</p>`, 403, {
       "Set-Cookie": csrfCookie("", 0),
     });

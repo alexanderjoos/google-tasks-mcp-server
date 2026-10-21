@@ -1,6 +1,6 @@
 # gtasks-mcp
 
-A remote MCP server that lets Claude manage Google Tasks (the tasks in Google Calendar's Tasks panel) and edit Google Sheets and Docs in place. It runs on the Cloudflare Workers free plan, uses OAuth 2.1 so it works from claude.ai on web and mobile, and only one Google account can ever authorize it.
+A remote MCP server that lets Claude manage Google Tasks (the tasks in Google Calendar's Tasks panel) and edit Google Sheets and Docs in place. It runs on the Cloudflare Workers free plan, uses OAuth 2.1 so it works from claude.ai on web and mobile, and only the Google accounts you list can authorize it.
 
 ## What it's for
 
@@ -12,7 +12,7 @@ It's a good fit if you have spare Cloudflare Workers requests: the free plan cov
 
 1. Deploy it to your own Cloudflare account and Google Cloud project by following [SETUP.md](SETUP.md) (about 30 minutes, free).
 2. In Claude, go to **Settings → Connectors → Add custom connector** and paste your Worker's `/mcp` URL.
-3. Connect, sign in with the Google account you set as `ALLOWED_EMAIL`, and approve.
+3. Connect, sign in with a Google account listed in `ALLOWED_EMAIL`, and approve.
 4. Ask Claude things like the examples above. For Sheets and Docs, paste the file's link, or let Claude's Google Drive connector find it.
 
 ## Tools
@@ -59,7 +59,7 @@ Claude ──MCP (Streamable HTTP, OAuth 2.1)──▶ Worker ──Google acces
 ```
 
 - `@cloudflare/workers-oauth-provider` makes the Worker an OAuth 2.1 authorization server. It supports Client ID Metadata Documents and Dynamic Client Registration, and gates `/mcp` behind bearer tokens.
-- `/authorize` shows a consent page, then hands off to Google. `/callback` checks the Google account against `ALLOWED_EMAIL` and stores the Google refresh token in the grant's encrypted props. The token never reaches Claude.
+- `/authorize` shows a consent page, then hands off to Google. `/callback` checks the Google account against `ALLOWED_EMAIL` (one or more, comma-separated) and stores the Google refresh token in the grant's encrypted props. The token never reaches Claude.
 - `/mcp` is stateless. Each request mints a fresh Google access token from the refresh token and serves one JSON-RPC exchange.
 
 ## Origin and security

@@ -10,7 +10,7 @@ export interface Env {
   GOOGLE_CLIENT_ID: string;
   /** Google OAuth client secret. Secret. */
   GOOGLE_CLIENT_SECRET: string;
-  /** The only Google account allowed to authorize. Secret, to keep it out of the repo. */
+  /** Comma-separated Google accounts allowed to authorize. Secret, to keep it out of the repo. */
   ALLOWED_EMAIL: string;
   /** Comma-separated hostnames that MCP clients may redirect to. Var. */
   ALLOWED_REDIRECT_HOSTS: string;

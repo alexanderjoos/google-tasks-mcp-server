@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-20 (added Sheets and Docs)
 
-gtasks-mcp is a personal, single-user tool. It lets Claude read and manage the Google Tasks, Google Sheets and Google Docs of one Google account, the owner's. No other account can authorize it.
+gtasks-mcp is a personal tool. It lets Claude read and manage the Google Tasks, Google Sheets and Google Docs of the owner's own Google accounts, listed in its configuration. No other account can authorize it.
 
 ## What it accesses
 

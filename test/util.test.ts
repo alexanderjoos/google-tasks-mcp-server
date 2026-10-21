@@ -1,12 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { escapeHtml, getCookie, isAllowedRedirect, nextDay, normalizeDue, parseHostList, safeEqual } from "../src/util.ts";
+import { escapeHtml, getCookie, isAllowedRedirect, nextDay, normalizeDue, parseList, safeEqual } from "../src/util.ts";
 
-const hosts = parseHostList("claude.ai, claude.com,localhost,127.0.0.1");
+const hosts = parseList("claude.ai, claude.com,localhost,127.0.0.1");
 
-test("parseHostList trims, lowercases, drops blanks", () => {
-  assert.deepEqual(parseHostList(" Claude.ai, ,localhost "), ["claude.ai", "localhost"]);
-  assert.deepEqual(parseHostList(undefined), []);
+test("parseList trims, lowercases, drops blanks", () => {
+  assert.deepEqual(parseList(" Claude.ai, ,localhost "), ["claude.ai", "localhost"]);
+  assert.deepEqual(parseList(undefined), []);
 });
 
 test("isAllowedRedirect accepts Claude and loopback", () => {

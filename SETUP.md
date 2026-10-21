@@ -34,7 +34,7 @@ Set the secrets:
 ```bash
 npx wrangler secret put GOOGLE_CLIENT_ID
 npx wrangler secret put GOOGLE_CLIENT_SECRET
-npx wrangler secret put ALLOWED_EMAIL      # your Gmail address, the only account allowed to connect
+npx wrangler secret put ALLOWED_EMAIL      # your Google account(s), comma-separated; only these can connect
 ```
 
 ## 3. Test locally (optional but recommended)
@@ -75,7 +75,7 @@ Connecting opens the consent page → **Approve** → Google sign-in. It works i
 | Symptom | Fix |
 |---|---|
 | "Redirect not allowed" | The client's callback host isn't in `ALLOWED_REDIRECT_HOSTS` (`wrangler.jsonc`). The page shows the rejected URL. Add its host only if you recognize it, then redeploy. |
-| "Not allowed" after Google sign-in | You signed in with an account other than `ALLOWED_EMAIL`. |
+| "Not allowed" after Google sign-in | You signed in with an account not listed in `ALLOWED_EMAIL`. |
 | "No refresh token" | Remove the app at <https://myaccount.google.com/permissions> and connect again. |
 | Sheets/Docs tools say access "wasn't granted" | The connector was authorized before those scopes existed, or a checkbox was left unticked on Google's consent screen. Disconnect and reconnect, and allow everything. |
 | "API isn't enabled" | Enable the Sheets or Docs API in the Google Cloud project (step 1.2). |

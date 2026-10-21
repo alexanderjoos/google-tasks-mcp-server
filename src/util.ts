@@ -12,8 +12,8 @@ export function escapeHtml(value: unknown): string {
     .replaceAll("'", "&#39;");
 }
 
-/** Parse a comma-separated host list ("claude.ai, localhost") into lowercase hostnames. */
-export function parseHostList(value: string | undefined): string[] {
+/** Parse a comma-separated list ("claude.ai, localhost" or emails) into lowercase entries. */
+export function parseList(value: string | undefined): string[] {
   return (value ?? "")
     .split(",")
     .map((h) => h.trim().toLowerCase())
